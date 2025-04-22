@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor Data Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Global Styles */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f7f9fc;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 30px;
+            margin-top: 30px;
+            color: #2c3e50;
+            letter-spacing: 0.5px;
+        }
+
+        h2 {
+            font-size: 22px;
+            margin-top: 15px;
+            color: #34495e;
+        }
+
+        /* Layout */
+        .container {
+            width: 90%;
+            margin: 0 auto;
+            max-width: 1200px;
+            padding: 20px 0;
+        }
+
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .plot-container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+            padding: 15px;
+            flex: 0 0 calc(50% - 20px);
+            max-width: 500px;
+            transition: transform 0.2s;
+        }
+
+        .plot-container:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        canvas {
+            max-height: 250px;
+        }
+
+        /* Chart.js Custom Styles */
+        .chart-title {
+            margin-top: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .sub-title {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 15px;
+        }
+
+        /* Button Style for Refresh */
+        .refresh-btn {
+            margin: 25px 0;
+            padding: 10px 24px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .refresh-btn:hover {
+            background-color: #2980b9;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(2px);
+        }
+
+        /* Responsive Layout */
+        @media screen and (max-width: 992px) {
+            .plot-container {
+                flex: 0 0 calc(50% - 20px);
+            }
+        }
+
+        @media screen and (max-width: 768px) {
+            .container {
+                width: 95%;
+            }
+            
+            .plot-container {
+                flex: 0 0 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Live Sensor Data Dashboard</h1>
+        
+        <div class="dashboard">
+            <!-- Temperature Plot -->
+            <div class="plot-container">
+                <h2 class="chart-title">Temperature</h2>
+                <p class="sub-title">Degrees Celsius (°C)</p>
+                <canvas id="temperaturePlot"></canvas>
+            </div>
+            
+            <!-- Humidity Plot -->
+            <div class="plot-container">
+                <h2 class="chart-title">Humidity</h2>
+                <p class="sub-title">Percentage (%)</p>
+                <canvas id="humidityPlot"></canvas>
+            </div>
+            
+            <!-- Weight Plot -->
+            <div class="plot-container">
+                <h2 class="chart-title">Weight</h2>
+                <p class="sub-title">Kilograms (kg)</p>
+                <canvas id="weightPlot"></canvas>
+            </div>
+
+            <!-- Vibration Data Plot -->
+            <div class="plot-container">
+                <h2 class="chart-title">Vibration Data</h2>
+                <p class="sub-title">Sensor 1 and Sensor 2 (m/s²)</p>
+                <canvas id="vibrationPlot"></canvas>
+            </div>
+        </div>
+
+        <!-- Refresh Button -->
+        <button class="refresh-btn" onclick="refreshData()">
+            Refresh All Plots
+        </button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Global chart variables
+        let temperatureChart = null;
+        let humidityChart = null;
+        let weightChart = null;
+        let vibrationChart = null;
+        
+        // Update flags to prevent simultaneous updates
+        let temperatureUpdateInProgress = false;
+        let humidityUpdateInProgress = false;
+        let weightUpdateInProgress = false;
+        let vibrationUpdateInProgress = false;
+
+        // Chart configuration helper
+        function getChartConfig(label, color, borderColor) {
+            return {
+                borderColor: borderColor || color,
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: borderColor || color,
+                pointBorderColor: '#fff',
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: borderColor || color,
+                tension: 0.3,
+                fill: false, // Removed shading/fill
+                label: label
+            };
+        }
+
+        // Format timestamp for better readability
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        // Common chart options
+        function getChartOptions(title, yAxisLabel) {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            boxWidth: 15,
+                            padding: 15,
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                        titleFont: {
+                            size: 13,
+                        },
+                        bodyFont: {
+                            size: 12
+                        },
+                        padding: 10,
+                        cornerRadius: 4
+                    }
+                },
+                scales: {
+                    x: {
+                        reverse: false,
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            maxRotation: 45, // Allow rotation for better readability
+                            minRotation: 30,
+                            maxTicksLimit: 8, // Limit number of ticks to avoid crowding
+                            callback: function(value, index, values) {
+                                // Only show a subset of timestamps
+                                const allLabels = this.chart.data.labels;
+                                if (index === 0 || index === allLabels.length - 1 || 
+                                    index % Math.ceil(allLabels.length / 7) === 0) {
+                                    return formatTimestamp(allLabels[index]);
+                                }
+                                return '';
+                            },
+                            font: {
+                                size: 10
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: yAxisLabel,
+                            font: {
+                                size: 12,
+                                weight: 'normal'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                size: 10
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 800,
+                    easing: 'easeOutQuart'
+                }
+            };
+        }
+
+        // Function to fetch environmental data
+        function fetchEnvironmentalData() {
+            fetch('/get_environmental_data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Environmental Data: ", data);
+                    
+                    // Sort data by timestamps (ascending order)
+                    const indices = Array.from(Array(data.timestamps.length).keys())
+                        .sort((a, b) => new Date(data.timestamps[a]) - new Date(data.timestamps[b]));
+                    
+                    const sortedData = {
+                        timestamps: indices.map(i => data.timestamps[i]),
+                        temperatures: indices.map(i => data.temperatures[i]),
+                        humidities: indices.map(i => data.humidities[i]),
+                        weights: indices.map(i => data.weights[i])
+                    };
+                    
+                    updateTemperaturePlot(sortedData);
+                    updateHumidityPlot(sortedData);
+                    updateWeightPlot(sortedData);
+                })
+                .catch(error => {
+                    console.error("Error fetching environmental data: ", error);
+                });
+        }
+
+        // Update temperature plot
+        function updateTemperaturePlot(data) {
+            if (temperatureUpdateInProgress) return;
+            temperatureUpdateInProgress = true;
+            
+            const ctx = document.getElementById('temperaturePlot').getContext('2d');
+            
+            if (temperatureChart) {
+                temperatureChart.destroy();
+            }
+
+            temperatureChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.timestamps,
+                    datasets: [{
+                        ...getChartConfig('Temperature (°C)', 'rgb(255, 99, 132)'),
+                        data: data.temperatures
+                    }]
+                },
+                options: getChartOptions('Temperature Over Time', '°C')
+            });
+            
+            temperatureUpdateInProgress = false;
+        }
+
+        // Update humidity plot
+        function updateHumidityPlot(data) {
+            if (humidityUpdateInProgress) return;
+            humidityUpdateInProgress = true;
+            
+            const ctx = document.getElementById('humidityPlot').getContext('2d');
+            
+            if (humidityChart) {
+                humidityChart.destroy();
+            }
+
+            humidityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.timestamps,
+                    datasets: [{
+                        ...getChartConfig('Humidity (%)', 'rgb(54, 162, 235)'),
+                        data: data.humidities
+                    }]
+                },
+                options: getChartOptions('Humidity Over Time', '%')
+            });
+            
+            humidityUpdateInProgress = false;
+        }
+
+        // Update weight plot
+        function updateWeightPlot(data) {
+            if (weightUpdateInProgress) return;
+            weightUpdateInProgress = true;
+            
+            const ctx = document.getElementById('weightPlot').getContext('2d');
+            
+            if (weightChart) {
+                weightChart.destroy();
+            }
+
+            weightChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.timestamps,
+                    datasets: [{
+                        ...getChartConfig('Weight (kg)', 'rgb(75, 192, 192)'),
+                        data: data.weights
+                    }]
+                },
+                options: getChartOptions('Weight Over Time', 'kg')
+            });
+            
+            weightUpdateInProgress = false;
+        }
+
+        // Function to fetch and update vibration data
+        function fetchVibrationData() {
+            if (vibrationUpdateInProgress) return;
+            vibrationUpdateInProgress = true;
+            
+            fetch('/get_vibration_data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Vibration Data: ", data);
+                    
+                    // Sort data by timestamps (ascending order)
+                    const indices = Array.from(Array(data.timestamps.length).keys())
+                        .sort((a, b) => new Date(data.timestamps[a]) - new Date(data.timestamps[b]));
+                    
+                    const sortedData = {
+                        timestamps: indices.map(i => data.timestamps[i]),
+                        vibration1s: indices.map(i => data.vibration1s[i]),
+                        vibration2s: indices.map(i => data.vibration2s[i])
+                    };
+                    
+                    updateVibrationPlot(sortedData);
+                })
+                .catch(error => {
+                    console.error("Error fetching vibration data: ", error);
+                })
+                .finally(() => {
+                    vibrationUpdateInProgress = false;
+                });
+        }
+
+        // Function to update the vibration plot
+        function updateVibrationPlot(data) {
+            const ctx = document.getElementById('vibrationPlot').getContext('2d');
+            
+            if (vibrationChart) {
+                vibrationChart.destroy();
+            }
+
+            vibrationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.timestamps,
+                    datasets: [
+                        {
+                            ...getChartConfig('Sensor 1', 'rgb(255, 159, 64)'),
+                            data: data.vibration1s
+                        },
+                        {
+                            ...getChartConfig('Sensor 2', 'rgb(153, 102, 255)'),
+                            data: data.vibration2s
+                        }
+                    ]
+                },
+                options: getChartOptions('Vibration Over Time', 'm/s²')
+            });
+        }
+
+        // Refresh all data
+        function refreshData() {
+            fetchEnvironmentalData();
+            fetchVibrationData();
+        }
+
+        // Initialize with staggered timing
+        setTimeout(fetchEnvironmentalData, 0);
+        setTimeout(fetchVibrationData, 500);
+
+        // Set up intervals with different timing to reduce conflicts
+        setInterval(fetchEnvironmentalData, 5000);
+        setInterval(fetchVibrationData, 3000);
+    </script>
+</body>
+</html>
